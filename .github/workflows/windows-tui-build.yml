@@ -3,6 +3,13 @@ name: windows-tui-build
 # Build the Windows opencode CLI (TUI) remotely on demand. Nothing is built
 # locally; the resulting exe is uploaded as an artifact.
 # Trigger manually: Actions -> windows-tui-build -> Run workflow -> pick variant.
+#
+# Builds on a Linux runner: bun cross-compiles the Windows exe
+# (--target=opencode-windows-*), exactly like upstream's publish workflow.
+# A Windows runner does NOT work here: bun's Windows `--linker hoisted`
+# install (setup-bun workaround for patched peers) results in
+# @opentui/solid's nested @babel/core being installed without its deps
+# -> "Cannot find module '@babel/helper-compilation-targets'".
 
 on:
   workflow_dispatch:
@@ -22,7 +29,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -57,5 +64,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: opencode-cli-windows-${{ inputs.variant }}
-          path: packages/cli/dist/opencode-windows-${{ inputs.variant }}
+          # build.ts writes to dist/cli-<target>/bin/opencode(.exe); upload the
+          # whole dir (mirrors upstream's `packages/cli/dist/cli-*` upload).
+          path: packages/cli/dist/cli-windows-${{ inputs.variant }}
           if-no-files-found: error
