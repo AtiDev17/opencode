@@ -15,6 +15,7 @@ import { SessionProviderContext } from "../provider-context.js"
 import { SessionModelRequest } from "../model-request.js"
 import { SessionModelTransport } from "../model-transport.js"
 import { SessionMessage } from "../message.js"
+import { SessionLiveStatus } from "../live-status.js"
 import { SessionSchema } from "../schema.js"
 import { SessionStore } from "../store.js"
 import { SessionMessageTable } from "../sql.js"
@@ -264,7 +265,10 @@ const layer = Layer.effect(
           ),
         })
         const completed = yield* SessionStep.Outcome.$match(outcome, {
-          Completed: (outcome) => Effect.succeed(outcome.needsContinuation),
+          Completed: (outcome) => {
+            SessionLiveStatus.clear(sessionID)
+            return Effect.succeed(outcome.needsContinuation)
+          },
           Retry: (outcome) =>
             retry.wait({
               decision: outcome.decision,
@@ -281,10 +285,12 @@ const layer = Layer.effect(
             assistantMessageID = SessionMessage.ID.create()
           }),
           Compacted: Effect.fnUntraced(function* () {
+            SessionLiveStatus.clear(sessionID)
             recoverOverflow = false
             assistantMessageID = SessionMessage.ID.create()
           }),
           RecoverFull: Effect.fnUntraced(function* () {
+            SessionLiveStatus.clear(sessionID)
             recoverContinuation = false
           }),
         })
