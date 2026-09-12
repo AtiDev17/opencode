@@ -16,6 +16,7 @@ import { Database } from "./database/database.js"
 import { SessionProjector } from "./session/projector.js"
 import { SessionMessageTable } from "./session/sql.js"
 import { SessionSchema } from "./session/schema.js"
+import { SessionLiveStatus } from "./session/live-status.js"
 import { RelativePath } from "./schema.js"
 import { Agent } from "@opencode/schema/agent"
 import type { Permission } from "@opencode/schema/permission"
@@ -351,6 +352,7 @@ const layer = Layer.effect(
       remove: Effect.fn("Session.remove")(function* (sessionID) {
         yield* result.get(sessionID)
         yield* execution.interrupt(sessionID)
+        SessionLiveStatus.clear(sessionID)
         yield* execution.awaitIdle(sessionID)
         yield* transport.close(sessionID)
         const children = yield* result.list({ parentID: sessionID })
@@ -442,7 +444,11 @@ const layer = Layer.effect(
       }),
       resume: (sessionID) => sessions.forSession(sessionID).resume(),
       synthetic: (input) => sessions.forSession(input.sessionID).synthetic(input),
-      interrupt: (sessionID, options) => sessions.forSession(sessionID).interrupt(options),
+      interrupt: (sessionID, options) =>
+        Effect.gen(function* () {
+          SessionLiveStatus.clear(sessionID)
+          return yield* sessions.forSession(sessionID).interrupt(options)
+        }),
       revert: {
         stage: (input) => sessions.forSession(input.sessionID).revert.stage(input),
         clear: (sessionID) => sessions.forSession(sessionID).revert.clear(),

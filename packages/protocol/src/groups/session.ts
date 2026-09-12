@@ -151,6 +151,22 @@ const FormCreatePayload = Schema.Struct({
   fields: Form.Info.fields.fields,
 }).annotate({ identifier: "Form.CreatePayload" })
 
+const SessionStatus = Schema.Struct({
+  active: Schema.Boolean,
+  retrying: Schema.Boolean,
+  rateLimited: Schema.Boolean,
+  attempt: Schema.Number.pipe(Schema.optional),
+  retryAt: Schema.Number.pipe(Schema.optional),
+  retryIn: Schema.Number.pipe(Schema.optional),
+  lastErrorType: Schema.String.pipe(Schema.optional),
+  lastError: Schema.String.pipe(Schema.optional),
+  updatedAt: Schema.Number.pipe(Schema.optional),
+}).annotate({
+  identifier: "SessionStatus",
+  description:
+    "Live process-local provider status for a session: whether it is actively draining, whether a provider retry (typically a rate limit) is currently scheduled, and the retry/error detail. Absent once this OpenCode process exits.",
+})
+
 const BooleanFromString = Schema.Literals(["true", "false"]).pipe(
   Schema.decodeTo(Schema.Boolean, {
     decode: SchemaGetter.transform((value) => value === "true"),
@@ -276,6 +292,20 @@ export const makeSessionGroup = <
           summary: "List active sessions",
           description:
             "Retrieve foreground Session drains currently owned by this OpenCode process. Sessions absent from the result are inactive.",
+        }),
+      ),
+    )
+    .add(
+      HttpApiEndpoint.get("session.status", "/api/session/:sessionID/status", {
+        params: { sessionID: Session.ID },
+        success: Schema.Struct({ data: SessionStatus }),
+        error: SessionNotFoundError,
+      }).annotateMerge(
+        OpenApi.annotations({
+          identifier: "v2.session.status",
+          summary: "Get session live provider status",
+          description:
+            "Retrieve live process-local provider status for a session: whether it is actively draining, whether a provider retry (typically a rate limit) is currently scheduled, and the retry/error detail. Process-local — the fields are absent once this OpenCode process exits.",
         }),
       ),
     )

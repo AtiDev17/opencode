@@ -4,6 +4,7 @@ import { SessionTitle } from "@opencode/core/session/title"
 import { SessionTransfer } from "@opencode/core/session/transfer"
 import { InstructionEntry } from "@opencode/core/session/instruction-entry"
 import { Form } from "@opencode/core/form"
+import { SessionLiveStatus } from "@opencode/core/session/live-status"
 import { DateTime, Effect, Stream } from "effect"
 import { HttpApiBuilder, HttpApiSchema } from "effect/unstable/httpapi"
 import { Api } from "../api"
@@ -181,6 +182,28 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
           const active = yield* session.active
           return {
             data: Object.fromEntries(Array.from(active, (sessionID) => [sessionID, { type: "running" as const }])),
+          }
+        }),
+      )
+      .handle(
+        "session.status",
+        Effect.fn(function* (ctx) {
+          yield* session.get(ctx.params.sessionID).pipe(Effect.catchTag("Session.NotFoundError", missingSession))
+          const active = yield* session.active
+          const live = SessionLiveStatus.get(ctx.params.sessionID)
+          const now = Date.now()
+          return {
+            data: {
+              active: active.has(ctx.params.sessionID),
+              retrying: live?.retrying ?? false,
+              rateLimited: live?.rateLimited ?? false,
+              attempt: live?.attempt,
+              retryAt: live?.retryAt,
+              retryIn: live === undefined ? undefined : Math.max(0, live.retryAt - now),
+              lastErrorType: live?.lastErrorType,
+              lastError: live?.lastError,
+              updatedAt: live?.updatedAt,
+            },
           }
         }),
       )

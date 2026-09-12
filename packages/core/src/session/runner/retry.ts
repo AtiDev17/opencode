@@ -8,6 +8,7 @@ import { Clock, Duration, Effect, Pull, Schedule } from "effect"
 import { Bus } from "../../bus.js"
 import type { PluginHooks } from "../../plugin/hooks.js"
 import { SessionEvent } from "../event.js"
+import { SessionLiveStatus } from "../live-status.js"
 import { SessionMessage } from "../message.js"
 import { SessionSchema } from "../schema.js"
 import { toSessionError } from "../to-session-error.js"
@@ -151,6 +152,11 @@ export const make = (bus: Bus.Interface, sessionID: SessionSchema.ID) =>
           assistantMessageID: input.assistantMessageID,
           attempt: input.decision.attempt,
           at: scheduled + input.decision.delay,
+          error: input.error,
+        })
+        SessionLiveStatus.recordRetry(sessionID, {
+          attempt: input.decision.attempt,
+          retryAt: scheduled + input.decision.delay,
           error: input.error,
         })
         const remaining = Math.max(0, scheduled + input.decision.delay - (yield* Clock.currentTimeMillis))
