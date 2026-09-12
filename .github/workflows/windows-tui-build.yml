@@ -64,7 +64,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: opencode-cli-windows-${{ inputs.variant }}
-          # build.ts writes to dist/cli-<target>/bin/opencode(.exe); upload the
-          # whole dir (mirrors upstream's `packages/cli/dist/cli-*` upload).
-          path: packages/cli/dist/cli-windows-${{ inputs.variant }}
+          # Ship only the compiled exe. build.ts writes to
+          # dist/cli-<target>/bin/opencode.exe (bun appends .exe for windows
+          # targets); the sibling .map / chunk-*.js.map files and package.json
+          # are build metadata not needed at runtime.
+          path: packages/cli/dist/cli-windows-${{ inputs.variant }}/bin/opencode.exe
           if-no-files-found: error
