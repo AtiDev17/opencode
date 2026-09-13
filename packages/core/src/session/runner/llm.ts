@@ -276,11 +276,15 @@ const layer = Layer.effect(
               assistantMessageID,
             }),
           Continue: Effect.fnUntraced(function* (outcome) {
-            yield* retry.wait({
+            const stopped = yield* retry.wait({
               decision: outcome.decision,
               error: outcome.error,
               assistantMessageID,
             })
+            // wait returns false on a long quota backoff (auto-stop): end the run
+            // instead of publishing yet another synthetic continuation and spinning
+            // the loop without a backoff sleep.
+            if (stopped === false) return false
             yield* bus.publish(SessionEvent.Synthetic, { sessionID, text: CONTINUE_AFTER_INCOMPLETE_STREAM })
             assistantMessageID = SessionMessage.ID.create()
           }),
