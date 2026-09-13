@@ -67,6 +67,14 @@ export function isRetryable(error: AIError) {
 /** Bound provider-requested delays so a hostile or buggy retry-after cannot stall a session for hours. */
 const RETRY_AFTER_MAX = Duration.toMillis("15 minutes")
 
+/**
+ * A scheduled rate-limit backoff at or above this (ms) is treated as a persistent
+ * per-IP quota rather than a transient 429: the runner auto-stops the wait (see
+ * `wait`) instead of sleeping it out. Tuned for the free tier's anonymous
+ * per-IP bucket, which resets at midnight and never clears on the same IP.
+ */
+const RATE_LIMIT_AUTO_STOP_MIN_MS = 60_000
+
 const retryAfter = (input: Input) => {
   if (input.cause.reason._tag === "RateLimit" || input.cause.reason._tag === "ProviderInternal")
     return input.cause.reason.retryAfterMs === undefined
@@ -159,6 +167,18 @@ export const make = (bus: Bus.Interface, sessionID: SessionSchema.ID) =>
           retryAt: scheduled + input.decision.delay,
           error: input.error,
         })
+        // Free-tier per-IP quotas stay limited on the same egress IP (usually
+        // until midnight), so sleeping out the long provider backoff just stalls
+        // the agent for hundreds of seconds. Auto-stop instead: the step fails
+        // without retrying, the run settles idle (conversation preserved), and
+        // the next injected prompt - typically after an external watcher rotated
+        // to a fresh IP - continues the work immediately. Short transient rate
+        // limits (< RATE_LIMIT_AUTO_STOP_MIN_MS) still back off and self-heal.
+        if (
+          input.error.type === "provider.rate-limit" &&
+          input.decision.delay >= RATE_LIMIT_AUTO_STOP_MIN_MS
+        )
+          return false
         const remaining = Math.max(0, scheduled + input.decision.delay - (yield* Clock.currentTimeMillis))
         yield* Effect.sleep(Duration.millis(remaining))
       })

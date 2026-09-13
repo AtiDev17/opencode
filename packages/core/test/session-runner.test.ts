@@ -5153,19 +5153,25 @@ describe("SessionRunnerLLM", () => {
     expect(s.requests).toHaveLength(2)
   })
 
-  scenario("caps an excessive provider retry-after delay at fifteen minutes", function* (s) {
+  scenario("auto-stops a long rate-limit backoff instead of sleeping it out", function* (s) {
     yield* s.admit("Retry capped rate limit")
     yield* s.llm.push(Stream.fail(rateLimited(3_600_000)))
     yield* s.llm.push(TestLLM.text("Recovered", "retry-cap-success"))
 
     const scheduled = yield* subscribeRetries(s)
     const run = yield* s.resume.pipe(Effect.forkChild)
-    yield* Queue.take(scheduled)
-    yield* TestClock.adjust("899999 millis")
+    yield* Queue.take(scheduled) // retry recorded (live status + event) for an external watcher to see
+    yield* Fiber.join(run) // run ends immediately - no backoff sleep (TestClock was never advanced)
     expect(s.requests).toHaveLength(1)
-    yield* TestClock.adjust("1 millis")
-    yield* Fiber.join(run)
+    expect(yield* recordedEventTypes(sessionID)).toContain("session.retry.scheduled.1")
+
+    // The stopped session is idle again and accepts a fresh prompt, which continues the work.
+    yield* s.admit("Continue after auto-stop")
+    const resumed = yield* s.resume.pipe(Effect.forkChild)
+    yield* Fiber.join(resumed)
     expect(s.requests).toHaveLength(2)
+    const assistants = (yield* s.context).filter((message) => message.type === "assistant")
+    expect(assistants.at(-1)).toMatchObject(Expected.assistant({ finish: "stop" }, [Expected.text("Recovered")]))
   })
 
   scenario("continues an incomplete stream after observable text", function* (s) {
