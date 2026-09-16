@@ -33,6 +33,8 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: v2
 
       - uses: ./.github/actions/setup-bun
         with:
