@@ -195,6 +195,41 @@ export const Plugin = {
               }
             }).pipe(Effect.mapError((error) => new ToolFailure({ message: "Unable to list models", error }))),
         })
+        draft.add({
+          name: "subagents",
+          description:
+            "List all active background subagent sessions spawned by the current session. Returns session IDs, titles, and status.",
+          input: Schema.Struct({}),
+          output: Schema.Struct({
+            subagents: Schema.Array(
+              Schema.Struct({
+                id: Session.ID,
+                title: Schema.String,
+                state: Schema.Literals(["running", "completed"]),
+              }),
+            ),
+          }),
+          options: { namespace: "opencode", codemode: true },
+          execute: (_input, context) =>
+            Effect.gen(function* () {
+              const active = yield* ctx.session.active()
+              const activeIds = new Set(Object.keys(active))
+              const page = yield* ctx.session.list({ parentID: context.sessionID, limit: 200 })
+              const subagents = page.data
+                .filter((s) => activeIds.has(s.id))
+                .map((s) => ({
+                  id: s.id,
+                  title: s.title ?? s.id,
+                  state: "running" as const,
+                }))
+              return {
+                output: { subagents },
+                content: subagents.length === 0
+                  ? "No active subagents."
+                  : `${subagents.length} active subagent(s): ${subagents.map((s) => `${s.title} (${s.id})`).join(", ")}`,
+              }
+            }).pipe(Effect.mapError((error) => new ToolFailure({ message: "Unable to list subagents", error }))),
+        })
       })
       .pipe(Effect.orDie)
   }),
