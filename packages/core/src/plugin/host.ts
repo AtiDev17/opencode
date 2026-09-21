@@ -516,6 +516,15 @@ export const make = Effect.fn("PluginHost.make")(function* (
         ),
     },
     session: {
+      list: (input) =>
+        sessions.list(input).pipe(Effect.map((result) => ({ data: result.data, cursor: {} }))),
+      active: sessions.active.pipe(
+        Effect.map((ids) => {
+          const result: Record<string, { type: "running" }> = {}
+          for (const id of ids) result[id] = { type: "running" }
+          return result
+        }),
+      ),
       hook: (name, callback, options) => hooks.register("session", name, callback, options),
       create: (input) =>
         sessions.create({
