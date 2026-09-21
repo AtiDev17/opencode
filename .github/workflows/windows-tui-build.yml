@@ -1,0 +1,59 @@
+name: windows-tui-build
+
+on:
+  workflow_dispatch:
+    inputs:
+      variant:
+        description: "Windows build target"
+        required: false
+        type: choice
+        default: x64
+        options:
+          - x64
+          - arm64
+          - x64-baseline
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: v2
+
+      - uses: ./.github/actions/setup-bun
+        with:
+          bun-version: "1.4.2"
+
+      - name: Resolve CLI version
+        id: version
+        shell: bash
+        run: echo "version=$(node -p "require('./packages/cli/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Typecheck touched packages (best effort, non-blocking)
+        continue-on-error: true
+        timeout-minutes: 15
+        shell: bash
+        run: |
+          bun run --cwd packages/core typecheck
+          bun run --cwd packages/cli typecheck
+
+      - name: Build Windows CLI
+        shell: bash
+        run: bun run --cwd packages/cli script/build.ts --target=opencode-windows-${{ inputs.variant }}
+        env:
+          OPENCODE_VERSION: ${{ steps.version.outputs.version }}
+          OPENCODE_CHANNEL: dev
+          GH_TOKEN: ${{ github.token }}
+          BUN_COMPILE_RELEASE: bun-v1.4.2
+
+      - name: Upload Windows TUI artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: opencode-cli-windows-${{ inputs.variant }}
+          path: packages/cli/dist/cli-windows-${{ inputs.variant }}/bin/opencode.exe
+          if-no-files-found: error
