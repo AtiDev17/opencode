@@ -358,9 +358,7 @@ export const Plugin = {
               Permission.evaluate(name, agent.id, selected.permissions).effect !== "deny",
           )
           .toSorted((a, b) => a.id.localeCompare(b.id))
-        const active = yield* subagents
-          .list(event.sessionID)
-          .pipe(Effect.catchAll(() => Effect.succeed<readonly SubagentJob.Active[]>([])))
+        const active = yield* subagents.list(event.sessionID)
         tool.description = [
           tool.description,
           ...(available.length > 0
