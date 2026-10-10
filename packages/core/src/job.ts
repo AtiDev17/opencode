@@ -124,8 +124,14 @@ export type BackgroundAllInput = {
   type?: string
 }
 
+export type ListInput = {
+  type?: string
+  status?: Status
+}
+
 export interface Interface {
   readonly get: (id: string) => Effect.Effect<Info | undefined>
+  readonly list: (input?: ListInput) => Effect.Effect<readonly Info[]>
   readonly start: (input: StartInput) => Effect.Effect<Info>
   readonly wait: (input: WaitInput) => Effect.Effect<WaitResult>
   readonly block: (input: BlockInput) => Effect.Effect<BlockResult | undefined>
@@ -247,6 +253,17 @@ export const make = Effect.gen(function* () {
     const job = (yield* SynchronizedRef.get(state.jobs)).get(id)
     if (!job) return undefined
     return snapshot(job)
+  })
+
+  const list: Interface["list"] = Effect.fn("Job.list")(function* (input) {
+    const jobs = yield* SynchronizedRef.get(state.jobs)
+    const result: Info[] = []
+    for (const job of jobs.values()) {
+      if (input?.type !== undefined && job.info.type !== input.type) continue
+      if (input?.status !== undefined && job.info.status !== input.status) continue
+      result.push(snapshot(job))
+    }
+    return result
   })
 
   const start: Interface["start"] = Effect.fnUntraced(function* (input) {
@@ -464,6 +481,7 @@ export const make = Effect.gen(function* () {
 
   return Service.of({
     get,
+    list,
     start,
     wait,
     block,

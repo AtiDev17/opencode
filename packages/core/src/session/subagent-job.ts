@@ -5,14 +5,25 @@ import { Node } from "@opencode/util/effect/app-node"
 import type { LayerNode } from "@opencode/util/effect/layer-node"
 import { Job } from "../job.js"
 import { Session } from "../session.js"
+import { SessionSchema } from "../session/schema.js"
 import { SubagentCompletion } from "./subagent-completion.js"
 
 type Recovery = Extract<Job.Recovery, { kind: "subagent" }>
+
+export type Active = {
+  sessionID: SessionSchema.ID
+  description: string
+  agent: string
+  status: Job.Status
+  title?: string
+  backgrounded: boolean
+}
 
 export interface Interface {
   start: (recovery: Recovery) => Effect.Effect<Job.Info>
   background: (recovery: Recovery) => Effect.Effect<void>
   notify: (recovery: Recovery, startedAt: number) => Effect.Effect<void>
+  list: (parentSessionID: SessionSchema.ID) => Effect.Effect<readonly Active[]>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/SubagentJob") {}
@@ -66,6 +77,25 @@ const make: Effect.Effect<Interface, never, Session.Service | Job.Service | Scop
       if (info) yield* notify(recovery, info.started_at)
     }),
     notify,
+    list: Effect.fn("SubagentJob.list")(function* (parentSessionID: SessionSchema.ID) {
+      const children = yield* sessions.list({ parentID: parentSessionID })
+      const out: Active[] = []
+      for (const child of children.data) {
+        const info = yield* jobs.get(child.id)
+        if (!info) continue
+        if (info.type !== "subagent") continue
+        if (info.status !== "running") continue
+        out.push({
+          sessionID: child.id,
+          description: info.title ?? child.title ?? "",
+          agent: child.agent ?? "",
+          status: info.status,
+          ...(child.title !== undefined ? { title: child.title } : {}),
+          backgrounded: info.notificationID !== undefined,
+        })
+      }
+      return out
+    }),
   })
 })
 

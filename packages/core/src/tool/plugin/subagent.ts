@@ -15,6 +15,28 @@ import { SubagentCompletion } from "../../session/subagent-completion.js"
 import { SubagentJob } from "../../session/subagent-job.js"
 
 export const name = "subagent"
+export const listName = "subagent_list"
+
+export const ListInput = Schema.Struct({})
+
+export const ListOutput = Schema.Struct({
+  subagents: Schema.Array(
+    Schema.Struct({
+      sessionID: SessionSchema.ID,
+      description: Schema.String,
+      agent: Schema.String,
+      status: Schema.String,
+      title: Schema.optionalKey(Schema.String),
+      backgrounded: Schema.Boolean,
+    }),
+  ),
+})
+
+export const listDescription = [
+  "Lists active subagents spawned by the current session.",
+  "Use this to see running child sessions before spawning more work or to find a sessionID to continue.",
+  "Returns only running subagents; completed, failed, or cancelled children are omitted.",
+].join("\n")
 
 const backgroundResult = (sessionID: SessionSchema.ID) => ({
   sessionID,
@@ -98,7 +120,7 @@ export const Plugin = {
     })
 
     yield* ctx.tool
-      .transform((editor) =>
+      .transform((editor) => {
         editor.add({
           name,
           options: { codemode: false },
@@ -264,8 +286,51 @@ export const Plugin = {
                 metadata: { sessionID: output.sessionID, status: output.status },
               })),
             ),
-        }),
-      )
+        })
+        editor.add({
+          name: listName,
+          options: { codemode: false },
+          description: listDescription,
+          input: ListInput,
+          output: ListOutput,
+          execute: (_input, context) =>
+            Effect.gen(function* () {
+              yield* sessions.get(context.sessionID).pipe(
+                Effect.mapError(
+                  (error) => new ToolFailure({ message: `Parent session not found: ${context.sessionID}`, error }),
+                ),
+              )
+              const active = yield* subagents.list(context.sessionID)
+              const entries = active.map((item) => ({
+                sessionID: item.sessionID,
+                description: item.description,
+                agent: item.agent,
+                status: item.status,
+                ...(item.title !== undefined ? { title: item.title } : {}),
+                backgrounded: item.backgrounded,
+              }))
+              if (entries.length === 0)
+                return {
+                  output: { subagents: [] },
+                  content: "No active subagents.",
+                }
+              return {
+                output: { subagents: entries },
+                content: [
+                  "Active subagents:",
+                  ...entries.map(
+                    (item) =>
+                      `- ${item.sessionID} (${item.agent}): ${item.description || item.title || "untitled"} [${item.status}${item.backgrounded ? ", background" : ""}]`,
+                  ),
+                ].join("\n"),
+              }
+            }).pipe(
+              Effect.mapError((error) =>
+                error instanceof ToolFailure ? error : new ToolFailure({ message: "Unable to list subagents", error }),
+              ),
+            ),
+        })
+      })
       .pipe(Effect.orDie)
 
     yield* ctx.tool.hook("execute.before", (event) =>
@@ -293,15 +358,32 @@ export const Plugin = {
               Permission.evaluate(name, agent.id, selected.permissions).effect !== "deny",
           )
           .toSorted((a, b) => a.id.localeCompare(b.id))
-        if (available.length === 0) return
+        const active = yield* subagents
+          .list(event.sessionID)
+          .pipe(Effect.catchAll(() => Effect.succeed<readonly SubagentJob.Active[]>([])))
         tool.description = [
           tool.description,
+          ...(available.length > 0
+            ? [
+                "",
+                "Available subagents:",
+                ...available.map(
+                  (agent) =>
+                    `- ${agent.id}: ${agent.description ?? "This subagent should only be called when explicitly requested."}`,
+                ),
+              ]
+            : []),
           "",
-          "Available subagents:",
-          ...available.map(
-            (agent) =>
-              `- ${agent.id}: ${agent.description ?? "This subagent should only be called when explicitly requested."}`,
-          ),
+          ...(active.length === 0
+            ? ["Active subagents: none."]
+            : [
+                "Active subagents:",
+                ...active.map(
+                  (item) =>
+                    `- ${item.sessionID} (${item.agent}): ${item.description}${item.backgrounded ? " [background]" : ""}`,
+                ),
+              ]),
+          "Use subagent_list to refresh active subagent status.",
         ].join("\n")
       })
     yield* ctx.session.hook("context", hook)
